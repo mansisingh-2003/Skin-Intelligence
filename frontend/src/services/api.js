@@ -1,58 +1,86 @@
-import {
-  getToken,
-  removeToken,
-  saveToken,
-  saveUser,
-} from "../auth";
+// ============================================================
+// SKIN INTELLIGENCE
+// FRONTEND API SERVICE
+// ============================================================
+//
+// This file handles communication between the React frontend
+// and the FastAPI backend.
+//
+// Backend:
+// http://127.0.0.1:8000
+//
+// Frontend:
+// http://localhost:5173
+//
+// ============================================================
 
 
-// =========================================================
-// API CONFIGURATION
-// =========================================================
+// ============================================================
+// API BASE URL
+// ============================================================
 
-export const API_BASE_URL =
+const API_BASE_URL =
   import.meta.env.VITE_API_URL ||
   "http://127.0.0.1:8000";
 
 
-// =========================================================
-// COMMON REQUEST FUNCTION
-// =========================================================
+// ============================================================
+// TOKEN HELPER
+// ============================================================
 
-async function request(endpoint, options = {}) {
+function getToken() {
+  return localStorage.getItem(
+    "skin_intelligence_token"
+  );
+}
+
+
+// ============================================================
+// MAIN REQUEST HELPER
+// ============================================================
+
+async function request(
+  endpoint,
+  options = {}
+) {
 
   const token = getToken();
+
+  const isFormData =
+    options.body instanceof FormData;
 
   const headers = {
     ...(options.headers || {}),
   };
 
 
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
   // JSON CONTENT TYPE
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
 
-  if (!(options.body instanceof FormData)) {
+  if (!isFormData) {
 
     headers["Content-Type"] =
       "application/json";
+
   }
 
 
-  // -------------------------------------------------------
-  // JWT AUTHORIZATION
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
+  // JWT AUTHENTICATION
+  // ----------------------------------------------------------
 
   if (token) {
 
-    headers["Authorization"] =
+    headers.Authorization =
       `Bearer ${token}`;
+
   }
 
 
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
   // SEND REQUEST
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
 
   let response;
 
@@ -68,37 +96,21 @@ async function request(endpoint, options = {}) {
 
   } catch (error) {
 
-    const networkError = new Error(
-      "Unable to connect to the backend server."
-    );
+    const networkError =
+      new Error(
+        "Unable to connect to the backend. Make sure FastAPI is running on port 8000."
+      );
 
     networkError.status = 0;
 
     throw networkError;
+
   }
 
 
-  // -------------------------------------------------------
-  // AUTHENTICATION FAILURE
-  // -------------------------------------------------------
-
-  if (response.status === 401) {
-
-    removeToken();
-
-    const error = new Error(
-      "Your session has expired. Please log in again."
-    );
-
-    error.status = 401;
-
-    throw error;
-  }
-
-
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
   // READ RESPONSE
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
 
   const contentType =
     response.headers.get(
@@ -107,43 +119,82 @@ async function request(endpoint, options = {}) {
 
   let data;
 
+  try {
 
-  if (
-    contentType.includes(
-      "application/json"
-    )
-  ) {
+    if (
+      contentType.includes(
+        "application/json"
+      )
+    ) {
 
-    data = await response.json();
+      data =
+        await response.json();
 
-  } else {
+    } else {
 
-    data = await response.text();
+      data =
+        await response.text();
+
+    }
+
+  } catch {
+
+    data = null;
+
   }
 
 
-  // -------------------------------------------------------
-  // HANDLE BACKEND ERROR
-  // -------------------------------------------------------
+  // ----------------------------------------------------------
+  // HANDLE HTTP ERRORS
+  // ----------------------------------------------------------
 
   if (!response.ok) {
 
     let message =
-      "Request failed.";
+      `Request failed with status ${response.status}.`;
+
 
     if (
-      typeof data === "object" &&
-      data !== null
+      data &&
+      typeof data === "object"
     ) {
 
-      message =
-        data.detail ||
-        data.message ||
-        "Request failed.";
+      if (
+        typeof data.detail ===
+        "string"
+      ) {
 
-    } else if (data) {
+        message = data.detail;
+
+      } else if (
+        Array.isArray(data.detail)
+      ) {
+
+        message =
+          data.detail
+            .map(
+              (item) =>
+                item?.msg ||
+                String(item)
+            )
+            .join(", ");
+
+      } else if (
+        typeof data.message ===
+        "string"
+      ) {
+
+        message = data.message;
+
+      }
+
+    } else if (
+      typeof data === "string" &&
+      data.trim()
+    ) {
 
       message = data;
+
     }
 
 
@@ -156,28 +207,31 @@ async function request(endpoint, options = {}) {
     error.data = data;
 
     throw error;
+
   }
 
 
-  // -------------------------------------------------------
-  // SUCCESS
-  // -------------------------------------------------------
-
   return data;
+
 }
 
 
-// =========================================================
+// ============================================================
 // AUTHENTICATION
-// =========================================================
+// ============================================================
+
+
+// ------------------------------------------------------------
+// LOGIN
+// ------------------------------------------------------------
 
 export async function login(
   email,
   password
 ) {
 
-  const data = await request(
-    "/login",
+  return request(
+    "/auth/login",
     {
       method: "POST",
 
@@ -188,78 +242,106 @@ export async function login(
     }
   );
 
-
-  // -------------------------------------------------------
-  // SAVE JWT
-  // -------------------------------------------------------
-
-  if (data?.access_token) {
-
-    saveToken(
-      data.access_token
-    );
-
-  } else if (data?.token) {
-
-    // Fallback in case backend returns "token"
-    saveToken(
-      data.token
-    );
-  }
-
-
-  // -------------------------------------------------------
-  // SAVE USER
-  // -------------------------------------------------------
-
-  if (data?.user) {
-
-    saveUser(
-      data.user
-    );
-  }
-
-
-  return data;
 }
 
+
+// ------------------------------------------------------------
+// REGISTER
+// ------------------------------------------------------------
 
 export async function register(
   userData
 ) {
 
   return request(
-    "/register",
+    "/auth/register",
     {
       method: "POST",
 
-      body: JSON.stringify(
-        userData
-      ),
+      body: JSON.stringify({
+        name:
+          userData?.name || "",
+
+        email:
+          userData?.email || "",
+
+        password:
+          userData?.password || "",
+
+        age:
+          userData?.age ??
+          null,
+
+        gender:
+          userData?.gender ||
+          null,
+      }),
     }
   );
+
 }
 
+
+// ------------------------------------------------------------
+// CURRENT USER
+// ------------------------------------------------------------
+//
+// This endpoint is ONLY for account information.
+// It is NOT used for Skin Profile information.
+//
+// ------------------------------------------------------------
 
 export async function getMe() {
 
   return request(
-    "/me"
+    "/auth/me",
+    {
+      method: "GET",
+    }
   );
+
 }
 
 
-// =========================================================
+// ============================================================
 // SKIN PROFILE
-// =========================================================
+// ============================================================
+//
+// IMPORTANT:
+//
+// /auth/me
+//      ↓
+// User account information
+//
+// /skin-profile
+//      ↓
+// Skin information
+//
+// This separation allows every user to have their own
+// independent skin profile.
+//
+// ============================================================
+
+
+// ------------------------------------------------------------
+// GET SKIN PROFILE
+// ------------------------------------------------------------
 
 export async function getSkinProfile() {
 
   return request(
-    "/skin-profile"
+    "/skin-profile",
+    {
+      method: "GET",
+    }
   );
+
 }
 
+
+// ------------------------------------------------------------
+// CREATE SKIN PROFILE
+// ------------------------------------------------------------
 
 export async function createSkinProfile(
   profile
@@ -270,13 +352,61 @@ export async function createSkinProfile(
     {
       method: "POST",
 
-      body: JSON.stringify(
-        profile
-      ),
+      body: JSON.stringify({
+
+        skin_type:
+          profile?.skin_type ||
+          null,
+
+        age_group:
+          profile?.age_group ||
+          null,
+
+        concerns:
+          profile?.concerns ||
+          null,
+
+        allergies:
+          profile?.allergies ||
+          null,
+
+        sensitivities:
+          profile?.sensitivities ||
+          null,
+
+        lifestyle:
+          profile?.lifestyle ||
+          null,
+
+        sleep_quality:
+          profile?.sleep_quality ||
+          null,
+
+        water_intake:
+          profile?.water_intake ===
+          ""
+            ? null
+            : profile?.water_intake ??
+              null,
+
+        environmental_exposure:
+          profile?.environmental_exposure ||
+          null,
+
+        additional_notes:
+          profile?.additional_notes ||
+          null,
+
+      }),
     }
   );
+
 }
 
+
+// ------------------------------------------------------------
+// UPDATE SKIN PROFILE
+// ------------------------------------------------------------
 
 export async function updateSkinProfile(
   profile
@@ -287,21 +417,79 @@ export async function updateSkinProfile(
     {
       method: "PUT",
 
-      body: JSON.stringify(
-        profile
-      ),
+      body: JSON.stringify({
+
+        skin_type:
+          profile?.skin_type ||
+          null,
+
+        age_group:
+          profile?.age_group ||
+          null,
+
+        concerns:
+          profile?.concerns ||
+          null,
+
+        allergies:
+          profile?.allergies ||
+          null,
+
+        sensitivities:
+          profile?.sensitivities ||
+          null,
+
+        lifestyle:
+          profile?.lifestyle ||
+          null,
+
+        sleep_quality:
+          profile?.sleep_quality ||
+          null,
+
+        water_intake:
+          profile?.water_intake ===
+          ""
+            ? null
+            : profile?.water_intake ??
+              null,
+
+        environmental_exposure:
+          profile?.environmental_exposure ||
+          null,
+
+        additional_notes:
+          profile?.additional_notes ||
+          null,
+
+      }),
     }
   );
+
 }
 
 
-// =========================================================
-// SKIN IMAGE ANALYSIS
-// =========================================================
+// ============================================================
+// AI SKIN ANALYSIS
+// ============================================================
+
+
+// ------------------------------------------------------------
+// ANALYZE SKIN IMAGE
+// ------------------------------------------------------------
 
 export async function analyzeSkinImage(
   file
 ) {
+
+  if (!file) {
+
+    throw new Error(
+      "Please select a skin image first."
+    );
+
+  }
+
 
   const formData =
     new FormData();
@@ -319,56 +507,97 @@ export async function analyzeSkinImage(
       body: formData,
     }
   );
+
 }
 
 
-// =========================================================
+// ============================================================
 // INTELLIGENCE DASHBOARD
-// =========================================================
+// ============================================================
+
+
+// ------------------------------------------------------------
+// DASHBOARD
+// ------------------------------------------------------------
 
 export async function getDashboard() {
 
   return request(
-    "/intelligence/dashboard"
+    "/intelligence/dashboard",
+    {
+      method: "GET",
+    }
   );
+
 }
 
 
-// =========================================================
+// ============================================================
 // HEALTH SCORE
-// =========================================================
+// ============================================================
+
+
+// ------------------------------------------------------------
+// PERSONALIZED HEALTH SCORE
+// ------------------------------------------------------------
 
 export async function getHealthScore() {
 
   return request(
-    "/intelligence/health-score"
+    "/intelligence/health-score",
+    {
+      method: "GET",
+    }
   );
+
 }
 
 
-// =========================================================
+// ============================================================
 // PERSONALIZED ROUTINE
-// =========================================================
+// ============================================================
+
+
+// ------------------------------------------------------------
+// ROUTINE
+// ------------------------------------------------------------
 
 export async function getRoutine() {
 
   return request(
-    "/intelligence/routine"
+    "/intelligence/routine",
+    {
+      method: "GET",
+    }
   );
+
 }
 
 
-// =========================================================
+// ============================================================
 // INGREDIENT INTELLIGENCE
-// =========================================================
+// ============================================================
+
+
+// ------------------------------------------------------------
+// GET ALL INGREDIENTS
+// ------------------------------------------------------------
 
 export async function getIngredients() {
 
   return request(
-    "/intelligence/ingredients"
+    "/intelligence/ingredients",
+    {
+      method: "GET",
+    }
   );
+
 }
 
+
+// ------------------------------------------------------------
+// ANALYZE INGREDIENT
+// ------------------------------------------------------------
 
 export async function analyzeIngredient(
   ingredient
@@ -380,56 +609,199 @@ export async function analyzeIngredient(
       method: "POST",
 
       body: JSON.stringify({
-        ingredient,
+
+        ingredient:
+          ingredient,
+
       }),
     }
   );
+
 }
 
 
-// =========================================================
+// ============================================================
 // PRODUCT RECOMMENDATIONS
-// =========================================================
+// ============================================================
+
+
+// ------------------------------------------------------------
+// GET RECOMMENDED PRODUCTS
+// ------------------------------------------------------------
 
 export async function getRecommendedProducts() {
 
   return request(
-    "/intelligence/products/recommend"
+    "/intelligence/products/recommend",
+    {
+      method: "GET",
+    }
   );
+
 }
 
 
-// =========================================================
-// PROGRESS TRACKING
-// =========================================================
+// ============================================================
+// PROGRESS
+// ============================================================
+
+
+// ------------------------------------------------------------
+// GET PROGRESS
+// ------------------------------------------------------------
 
 export async function getProgress() {
 
   return request(
-    "/intelligence/progress"
+    "/intelligence/progress",
+    {
+      method: "GET",
+    }
   );
+
 }
 
 
-// =========================================================
-// GENERAL RECOMMENDATIONS
-// =========================================================
+// ============================================================
+// RECOMMENDATIONS
+// ============================================================
+
+
+// ------------------------------------------------------------
+// GET PERSONALIZED RECOMMENDATIONS
+// ------------------------------------------------------------
 
 export async function getRecommendations() {
 
   return request(
-    "/intelligence/recommendations"
+    "/intelligence/recommendations",
+    {
+      method: "GET",
+    }
   );
+
 }
 
 
-// =========================================================
-// BACKEND HEALTH
-// =========================================================
+// ============================================================
+// BACKEND CONNECTION CHECK
+// ============================================================
+
+
+// ------------------------------------------------------------
+// CHECK BACKEND
+// ------------------------------------------------------------
 
 export async function checkBackend() {
 
   return request(
-    "/"
+    "/",
+    {
+      method: "GET",
+    }
   );
+
 }
+
+
+// ============================================================
+// OPTIONAL GENERIC HELPERS
+// ============================================================
+//
+// These are kept here so future modules can use the same
+// request system without creating duplicate fetch logic.
+//
+// ============================================================
+
+
+// ------------------------------------------------------------
+// GENERIC GET
+// ------------------------------------------------------------
+
+export async function apiGet(
+  endpoint
+) {
+
+  return request(
+    endpoint,
+    {
+      method: "GET",
+    }
+  );
+
+}
+
+
+// ------------------------------------------------------------
+// GENERIC POST
+// ------------------------------------------------------------
+
+export async function apiPost(
+  endpoint,
+  data
+) {
+
+  return request(
+    endpoint,
+    {
+      method: "POST",
+
+      body:
+        data instanceof FormData
+          ? data
+          : JSON.stringify(data),
+    }
+  );
+
+}
+
+
+// ------------------------------------------------------------
+// GENERIC PUT
+// ------------------------------------------------------------
+
+export async function apiPut(
+  endpoint,
+  data
+) {
+
+  return request(
+    endpoint,
+    {
+      method: "PUT",
+
+      body:
+        data instanceof FormData
+          ? data
+          : JSON.stringify(data),
+    }
+  );
+
+}
+
+
+// ------------------------------------------------------------
+// GENERIC DELETE
+// ------------------------------------------------------------
+
+export async function apiDelete(
+  endpoint
+) {
+
+  return request(
+    endpoint,
+    {
+      method: "DELETE",
+    }
+  );
+
+}
+
+
+// ============================================================
+// EXPORT API BASE URL
+// ============================================================
+
+export {
+  API_BASE_URL,
+};

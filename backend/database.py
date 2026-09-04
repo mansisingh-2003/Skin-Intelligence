@@ -1,45 +1,68 @@
+# ============================================================
+# SKIN INTELLIGENCE
+# DATABASE CONFIGURATION
+# ============================================================
+
 import os
 
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Load variables from .env
-load_dotenv()
 
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
+# ============================================================
+# DATABASE PATH
+# ============================================================
 
-# PostgreSQL connection URL
-DATABASE_URL = (
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}"
-    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DB_PATH = os.path.join(
+    BASE_DIR,
+    "skin_intelligence.db"
 )
 
-# Create database engine
+DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+
+# ============================================================
+# SQLALCHEMY ENGINE
+# ============================================================
+
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True
+    connect_args={
+        "check_same_thread": False
+    }
 )
 
-# Create database session
+
+# ============================================================
+# SESSION
+# ============================================================
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
 
-# Base class for database models
+
+# ============================================================
+# BASE MODEL
+# ============================================================
+
 Base = declarative_base()
 
 
-# Database dependency for FastAPI
+# ============================================================
+# DATABASE DEPENDENCY
+# ============================================================
+
 def get_db():
+
     db = SessionLocal()
+
     try:
         yield db
+
     finally:
         db.close()

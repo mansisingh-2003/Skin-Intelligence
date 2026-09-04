@@ -2,16 +2,30 @@
 # SKIN INTELLIGENCE ROUTES
 # ============================================================
 #
-# This module provides:
-# 1. Skin health score
-# 2. Personalized morning/evening routine
-# 3. Ingredient intelligence
-# 4. Product recommendations
-# 5. Progress tracking
-# 6. Dashboard summary
+# Personalized intelligence engine for:
+# - Health score
+# - Personalized routine
+# - Ingredient intelligence
+# - Product recommendations
+# - Progress tracking
+# - Dashboard
+# - General recommendations
 #
-# These APIs are designed around the modules required in the
-# Skin Intelligence & Personalized Skincare Planner PDF.
+# IMPORTANT:
+# This file uses the CURRENT SkinProfile database structure:
+#
+# skin_type
+# age_group
+# skin_concerns
+# allergies
+# sensitivities
+# lifestyle_habits
+# sleep_quality
+# water_intake
+# environmental_exposure
+# additional_notes
+#
+# Every endpoint uses the currently logged-in user's profile.
 # ============================================================
 
 from typing import Optional
@@ -36,7 +50,7 @@ router = APIRouter(
 
 
 # ============================================================
-# INGREDIENT REQUEST SCHEMA
+# REQUEST SCHEMA
 # ============================================================
 
 class IngredientAnalysisRequest(BaseModel):
@@ -44,7 +58,7 @@ class IngredientAnalysisRequest(BaseModel):
 
 
 # ============================================================
-# HELPER FUNCTIONS
+# PROFILE HELPERS
 # ============================================================
 
 def get_user_skin_profile(
@@ -52,10 +66,11 @@ def get_user_skin_profile(
     db: Session,
 ):
     """
-    Get the current user's skin profile.
+    Get the skin profile belonging to the currently
+    authenticated user.
     """
 
-    profile = (
+    return (
         db.query(SkinProfile)
         .filter(
             SkinProfile.user_id == current_user.id
@@ -63,18 +78,17 @@ def get_user_skin_profile(
         .first()
     )
 
-    return profile
-
 
 def get_latest_analysis(
     current_user: User,
     db: Session,
 ):
     """
-    Get the most recent AI skin analysis.
+    Get the latest AI skin analysis belonging to
+    the currently authenticated user.
     """
 
-    analysis = (
+    return (
         db.query(SkinAnalysis)
         .filter(
             SkinAnalysis.user_id == current_user.id
@@ -85,161 +99,290 @@ def get_latest_analysis(
         .first()
     )
 
-    return analysis
 
+# ============================================================
+# GENERAL HELPERS
+# ============================================================
 
-def safe_number(value, default=0):
-    """
-    Convert values safely to numbers.
-    """
-
+def safe_number(value, default=0.0):
     try:
-
         if value is None:
             return default
 
         return float(value)
 
     except (ValueError, TypeError):
-
         return default
 
 
-def normalize_severity(value):
-    """
-    Convert skin concern severity into a numeric score.
-    """
-
+def clean_text(value):
     if value is None:
-        return 0
+        return ""
 
-    if isinstance(value, bool):
-        return 1 if value else 0
+    return str(value).strip()
 
-    if isinstance(value, (int, float)):
-        return max(
-            0,
-            min(
-                3,
-                float(value)
-            )
+
+def text_contains(text, words):
+    """
+    Check whether any keyword exists in a text field.
+    """
+
+    text = clean_text(text).lower()
+
+    return any(
+        word.lower() in text
+        for word in words
+    )
+
+
+def get_primary_skin_type(profile):
+    if not profile:
+        return "Not specified"
+
+    value = clean_text(
+        getattr(
+            profile,
+            "skin_type",
+            ""
         )
+    )
 
-    text = str(value).lower().strip()
+    return value or "Not specified"
 
-    if text in ["high", "severe", "3"]:
-        return 3
 
-    if text in ["medium", "moderate", "2"]:
-        return 2
-
-    if text in ["low", "mild", "1"]:
-        return 1
-
-    return 0
-
+# ============================================================
+# CONCERN EXTRACTION
+# ============================================================
 
 def get_skin_concerns(profile):
     """
-    Extract concerns from the current skin profile.
+    Convert the current database's single skin_concerns
+    text field into standardized concern labels.
+
+    Example:
+
+    "Acne, dark spots"
+
+    becomes:
+
+    ["Acne", "Dark Spots"]
     """
+
+    if not profile:
+        return []
+
+    raw = clean_text(
+        getattr(
+            profile,
+            "skin_concerns",
+            ""
+        )
+    )
+
+    if not raw:
+        return []
+
+    text = raw.lower()
 
     concerns = []
 
-    if not profile:
-        return concerns
+    concern_keywords = [
+        (
+            [
+                "acne",
+                "pimple",
+                "pimples",
+                "breakout",
+                "breakouts",
+            ],
+            "Acne",
+        ),
+        (
+            [
+                "hyperpigmentation",
+                "pigmentation",
+            ],
+            "Hyperpigmentation",
+        ),
+        (
+            [
+                "dark spot",
+                "dark spots",
+            ],
+            "Dark Spots",
+        ),
+        (
+            [
+                "dry",
+                "dryness",
+            ],
+            "Dry Skin",
+        ),
+        (
+            [
+                "oily",
+                "oiliness",
+                "excess oil",
+            ],
+            "Oily Skin",
+        ),
+        (
+            [
+                "sensitive",
+                "sensitivity",
+            ],
+            "Sensitive Skin",
+        ),
+        (
+            [
+                "wrinkle",
+                "wrinkles",
+            ],
+            "Wrinkles",
+        ),
+        (
+            [
+                "fine line",
+                "fine lines",
+            ],
+            "Fine Lines",
+        ),
+        (
+            [
+                "redness",
+                "red",
+            ],
+            "Redness",
+        ),
+        (
+            [
+                "uneven tone",
+                "uneven skin tone",
+            ],
+            "Uneven Skin Tone",
+        ),
+        (
+            [
+                "texture",
+                "rough skin",
+            ],
+            "Texture",
+        ),
+        (
+            [
+                "dull",
+                "dullness",
+            ],
+            "Dull-looking Skin",
+        ),
+    ]
 
-    concern_fields = {
-        "acne": "Acne",
-        "pigmentation": "Hyperpigmentation",
-        "dryness": "Dry Skin",
-        "sensitivity": "Sensitive Skin",
-        "dark_circles": "Dark Circles",
-        "wrinkles": "Wrinkles",
-        "redness": "Redness",
-    }
+    for keywords, label in concern_keywords:
 
-    for field, label in concern_fields.items():
-
-        value = getattr(
-            profile,
-            field,
-            None
-        )
-
-        if normalize_severity(value) > 0:
+        if any(
+            keyword in text
+            for keyword in keywords
+        ):
             concerns.append(label)
 
-    return concerns
+    # Remove duplicates while preserving order.
+    return list(
+        dict.fromkeys(concerns)
+    )
 
 
-def calculate_condition_score(
-    profile,
-    analysis,
-):
+# ============================================================
+# LIFESTYLE SCORE
+# ============================================================
+
+def calculate_lifestyle_score(profile):
     """
-    Calculate the skin-condition component.
+    Calculate lifestyle component.
 
-    PDF weighting:
-    Skin Condition Assessment = 35%
+    Base score = 70.
+
+    Positive signals:
+    - exercise
+    - active lifestyle
+    - healthy habits
+
+    Negative signals:
+    - smoking
+    - high stress
+    - unhealthy lifestyle
     """
 
-    if not profile and not analysis:
-        return 50.0
+    if not profile:
+        return 70.0
 
-    score = 100.0
-
-    if profile:
-
-        concern_fields = [
-            "acne",
-            "pigmentation",
-            "dryness",
-            "sensitivity",
-            "dark_circles",
-            "wrinkles",
-            "redness",
-        ]
-
-        for field in concern_fields:
-
-            value = getattr(
-                profile,
-                field,
-                None
-            )
-
-            severity = normalize_severity(
-                value
-            )
-
-            if severity == 1:
-                score -= 4
-
-            elif severity == 2:
-                score -= 8
-
-            elif severity == 3:
-                score -= 12
-
-    if analysis:
-
-        confidence = safe_number(
-            getattr(
-                analysis,
-                "confidence",
-                None
-            ),
-            0
+    lifestyle = clean_text(
+        getattr(
+            profile,
+            "lifestyle_habits",
+            ""
         )
+    ).lower()
 
-        # Confidence is not treated as medical accuracy.
-        # It only contributes a small consistency signal.
-        if confidence > 0:
-            score = (
-                score * 0.75
-                + min(confidence * 100, 100) * 0.25
-            )
+    if not lifestyle:
+        return 70.0
+
+    score = 70.0
+
+    if text_contains(
+        lifestyle,
+        [
+            "exercise",
+            "exercises",
+            "workout",
+            "walking",
+            "active",
+            "yoga",
+            "gym",
+        ],
+    ):
+        score += 10
+
+    if text_contains(
+        lifestyle,
+        [
+            "healthy",
+            "balanced diet",
+            "balanced",
+            "fruit",
+            "vegetable",
+        ],
+    ):
+        score += 5
+
+    if text_contains(
+        lifestyle,
+        [
+            "smoking",
+            "smoke",
+            "smoker",
+        ],
+    ):
+        score -= 15
+
+    if text_contains(
+        lifestyle,
+        [
+            "high stress",
+            "stress",
+            "stressed",
+        ],
+    ):
+        score -= 10
+
+    if text_contains(
+        lifestyle,
+        [
+            "poor diet",
+            "junk food",
+            "unhealthy",
+        ],
+    ):
+        score -= 8
 
     return round(
         max(
@@ -249,9 +392,328 @@ def calculate_condition_score(
                 score
             )
         ),
-        2
+        2,
     )
 
+
+# ============================================================
+# SLEEP SCORE
+# ============================================================
+
+def calculate_sleep_score(profile):
+    if not profile:
+        return 70.0
+
+    sleep = clean_text(
+        getattr(
+            profile,
+            "sleep_quality",
+            ""
+        )
+    ).lower()
+
+    if not sleep:
+        return 70.0
+
+    if sleep in [
+        "excellent",
+        "very good",
+        "great",
+    ]:
+        return 95.0
+
+    if sleep in [
+        "good",
+    ]:
+        return 85.0
+
+    if sleep in [
+        "average",
+        "fair",
+        "moderate",
+    ]:
+        return 70.0
+
+    if sleep in [
+        "poor",
+        "bad",
+    ]:
+        return 45.0
+
+    if "excellent" in sleep:
+        return 95.0
+
+    if "good" in sleep:
+        return 85.0
+
+    if "poor" in sleep:
+        return 45.0
+
+    return 70.0
+
+
+# ============================================================
+# HYDRATION SCORE
+# ============================================================
+
+def calculate_hydration_score(profile):
+    """
+    Convert water intake into a simple 0-100 score.
+
+    Around 2.5 L/day is treated as a strong hydration
+    signal for this application.
+
+    This is a wellness indicator, not medical advice.
+    """
+
+    if not profile:
+        return 70.0
+
+    water = safe_number(
+        getattr(
+            profile,
+            "water_intake",
+            None
+        ),
+        0.0,
+    )
+
+    if water <= 0:
+        return 60.0
+
+    score = (
+        water / 2.5
+    ) * 100
+
+    return round(
+        max(
+            20,
+            min(
+                100,
+                score
+            )
+        ),
+        2,
+    )
+
+
+# ============================================================
+# CONDITION SCORE
+# ============================================================
+
+def calculate_condition_score(
+    profile,
+    analysis=None,
+):
+    """
+    Calculate the skin-condition component.
+
+    Weight in final score:
+    35%
+
+    The current database stores concerns as text,
+    so we count recognized concerns rather than trying
+    to access nonexistent fields such as profile.acne.
+    """
+
+    if not profile and not analysis:
+        return 50.0
+
+    score = 100.0
+
+    concerns = get_skin_concerns(
+        profile
+    )
+
+    # Each recognized concern has a modest impact.
+    score -= len(concerns) * 8
+
+    # Extra adjustment for sensitivity.
+    if "Sensitive Skin" in concerns:
+        score -= 4
+
+    # Environmental exposure can affect the wellness score.
+    if profile:
+
+        environment = clean_text(
+            getattr(
+                profile,
+                "environmental_exposure",
+                ""
+            )
+        ).lower()
+
+        if environment:
+
+            if text_contains(
+                environment,
+                [
+                    "high pollution",
+                    "heavy pollution",
+                    "pollution",
+                ],
+            ):
+                score -= 4
+
+            if text_contains(
+                environment,
+                [
+                    "high sun",
+                    "strong sun",
+                    "sun exposure",
+                ],
+            ):
+                score -= 3
+
+    # Use the CURRENT SkinAnalysis field.
+    if analysis:
+
+        confidence = safe_number(
+            getattr(
+                analysis,
+                "primary_confidence",
+                None
+            ),
+            0.0,
+        )
+
+        if confidence > 1:
+            confidence = confidence / 100
+
+        confidence = max(
+            0,
+            min(
+                1,
+                confidence
+            )
+        )
+
+        # Small consistency contribution.
+        score = (
+            score * 0.90
+            + (confidence * 100) * 0.10
+        )
+
+    return round(
+        max(
+            0,
+            min(
+                100,
+                score
+            )
+        ),
+        2,
+    )
+
+
+# ============================================================
+# ROUTINE CONSISTENCY SCORE
+# ============================================================
+
+def calculate_routine_score(profile):
+    """
+    There is currently no database table for daily
+    routine completion.
+
+    Therefore we use a reasonable starting value instead
+    of pretending that routine adherence is already tracked.
+    """
+
+    if not profile:
+        return 50.0
+
+    return 65.0
+
+
+# ============================================================
+# FINAL HEALTH SCORE
+# ============================================================
+
+def calculate_health_score(
+    profile,
+    analysis=None,
+):
+    """
+    Weighted Skin Health Score.
+
+    Skin Condition       35%
+    Lifestyle            20%
+    Sleep                15%
+    Routine Consistency  20%
+    Hydration            10%
+    """
+
+    condition_score = calculate_condition_score(
+        profile,
+        analysis,
+    )
+
+    lifestyle_score = calculate_lifestyle_score(
+        profile
+    )
+
+    sleep_score = calculate_sleep_score(
+        profile
+    )
+
+    routine_score = calculate_routine_score(
+        profile
+    )
+
+    hydration_score = calculate_hydration_score(
+        profile
+    )
+
+    overall = (
+        condition_score * 0.35
+        + lifestyle_score * 0.20
+        + sleep_score * 0.15
+        + routine_score * 0.20
+        + hydration_score * 0.10
+    )
+
+    return {
+        "overall": round(
+            max(
+                0,
+                min(
+                    100,
+                    overall
+                )
+            ),
+            2,
+        ),
+
+        "condition": round(
+            condition_score,
+            2,
+        ),
+
+        "lifestyle": round(
+            lifestyle_score,
+            2,
+        ),
+
+        "sleep": round(
+            sleep_score,
+            2,
+        ),
+
+        "routine": round(
+            routine_score,
+            2,
+        ),
+
+        "hydration": round(
+            hydration_score,
+            2,
+        ),
+    }
+
+
+# ============================================================
+# SCORE LABEL
+# ============================================================
 
 def get_score_label(score):
 
@@ -267,25 +729,8 @@ def get_score_label(score):
     return "Needs Attention"
 
 
-def get_primary_skin_type(profile):
-
-    if not profile:
-        return "Not specified"
-
-    value = getattr(
-        profile,
-        "skin_type",
-        None
-    )
-
-    if not value:
-        return "Not specified"
-
-    return str(value)
-
-
 # ============================================================
-# 1. SKIN HEALTH SCORE
+# 1. HEALTH SCORE ENDPOINT
 # ============================================================
 
 @router.get("/health-score")
@@ -306,173 +751,64 @@ def get_health_score(
         db
     )
 
-    # --------------------------------------------------------
-    # CONDITION SCORE
-    # PDF: 35%
-    # --------------------------------------------------------
-
-    condition_score = calculate_condition_score(
+    scores = calculate_health_score(
         profile,
-        analysis
+        analysis,
     )
 
-    # --------------------------------------------------------
-    # LIFESTYLE
-    # PDF: 20%
-    #
-    # Current database may not yet contain dedicated lifestyle
-    # tracking fields, therefore use a neutral baseline.
-    # --------------------------------------------------------
-
-    lifestyle_score = 70.0
-
-    # --------------------------------------------------------
-    # SLEEP
-    # PDF: 15%
-    # --------------------------------------------------------
-
-    sleep_score = 70.0
-
-    if profile:
-
-        sleep_quality = getattr(
-            profile,
-            "sleep_quality",
-            None
-        )
-
-        if sleep_quality is not None:
-
-            text = str(
-                sleep_quality
-            ).lower()
-
-            if "excellent" in text:
-                sleep_score = 95
-
-            elif "good" in text:
-                sleep_score = 85
-
-            elif "average" in text:
-                sleep_score = 70
-
-            elif "poor" in text:
-                sleep_score = 45
-
-    # --------------------------------------------------------
-    # ROUTINE CONSISTENCY
-    # PDF: 20%
-    #
-    # Until routine adherence tracking is connected,
-    # use a neutral baseline.
-    # --------------------------------------------------------
-
-    routine_score = 50.0
-
-    # --------------------------------------------------------
-    # HYDRATION
-    # PDF: 10%
-    # --------------------------------------------------------
-
-    hydration_score = 70.0
-
-    if profile:
-
-        water_intake = getattr(
-            profile,
-            "water_intake",
-            None
-        )
-
-        if water_intake is not None:
-
-            water = safe_number(
-                water_intake,
-                2
-            )
-
-            hydration_score = min(
-                100,
-                max(
-                    20,
-                    (water / 3.0) * 100
-                )
-            )
-
-    # --------------------------------------------------------
-    # WEIGHTED SCORE
-    # --------------------------------------------------------
-
-    overall_score = (
-
-        condition_score * 0.35
-
-        + lifestyle_score * 0.20
-
-        + sleep_score * 0.15
-
-        + routine_score * 0.20
-
-        + hydration_score * 0.10
+    concerns = get_skin_concerns(
+        profile
     )
 
-    overall_score = round(
-        max(
-            0,
-            min(
-                100,
-                overall_score
-            )
-        ),
-        2
+    label = get_score_label(
+        scores["overall"]
     )
 
     return {
-
         "status": "success",
 
         "user_id": current_user.id,
 
-        "health_score": overall_score,
+        "score": scores["overall"],
 
-        "label": get_score_label(
-            overall_score
+        "health_score": scores["overall"],
+
+        "overall_score": scores["overall"],
+
+        "label": label,
+
+        "health_label": label,
+
+        "skin_type": get_primary_skin_type(
+            profile
         ),
 
+        "concerns": concerns,
+
         "components": {
+            "skin_condition": scores["condition"],
+            "lifestyle": scores["lifestyle"],
+            "sleep_quality": scores["sleep"],
+            "routine_consistency": scores["routine"],
+            "hydration": scores["hydration"],
+        },
 
-            "skin_condition": {
-                "score": condition_score,
-                "weight": 35,
-            },
+        "weights": {
+            "skin_condition": 35,
+            "lifestyle": 20,
+            "sleep_quality": 15,
+            "routine_consistency": 20,
+            "hydration": 10,
+        },
 
-            "lifestyle": {
-                "score": lifestyle_score,
-                "weight": 20,
-            },
-
-            "sleep_quality": {
-                "score": sleep_score,
-                "weight": 15,
-            },
-
-            "routine_consistency": {
-                "score": routine_score,
-                "weight": 20,
-            },
-
-            "hydration": {
-                "score": round(
-                    hydration_score,
-                    2
-                ),
-                "weight": 10,
-            },
+        "personalization": {
+            "profile_used": profile is not None,
+            "analysis_used": analysis is not None,
         },
 
         "note": (
-            "This is an application-level wellness "
-            "score and not a medical diagnosis."
+            "This score is a wellness and personalization "
+            "indicator. It is not a medical diagnosis."
         ),
     }
 
@@ -494,6 +830,25 @@ def get_personalized_routine(
         db
     )
 
+    if not profile:
+
+        return {
+            "status": "success",
+            "user_id": current_user.id,
+            "skin_type": "Not specified",
+            "identified_concerns": [],
+            "morning_routine": [],
+            "evening_routine": [],
+            "weekly_plan": [],
+            "personalized_recommendations": [
+                "Complete your skin profile to receive personalized routine suggestions."
+            ],
+            "note": (
+                "Routine suggestions are informational "
+                "and do not replace professional medical advice."
+            ),
+        }
+
     skin_type = get_primary_skin_type(
         profile
     )
@@ -502,149 +857,156 @@ def get_personalized_routine(
         profile
     )
 
-    # --------------------------------------------------------
-    # BASE MORNING ROUTINE
-    # --------------------------------------------------------
-
     morning = [
-
         {
+            "id": "morning-cleanse",
             "step": 1,
             "category": "Cleansing",
-            "product_type": "Gentle Cleanser",
-            "reason": "Remove overnight oil and impurities.",
+            "title": "Gentle Cleanser",
+            "description": (
+                "Cleanse the face gently without excessive scrubbing."
+            ),
         },
-
         {
+            "id": "morning-moisturize",
             "step": 2,
-            "category": "Treatment",
-            "product_type": "Antioxidant Serum",
-            "reason": "Support skin protection and even appearance.",
-        },
-
-        {
-            "step": 3,
             "category": "Moisturizing",
-            "product_type": "Moisturizer",
-            "reason": "Maintain the skin barrier.",
+            "title": "Moisturizer",
+            "description": (
+                "Apply a moisturizer suited to your skin type."
+            ),
         },
-
         {
-            "step": 4,
+            "id": "morning-sunscreen",
+            "step": 3,
             "category": "Sun Protection",
-            "product_type": "Broad-Spectrum Sunscreen SPF 30+",
-            "reason": "Protect against UV exposure.",
+            "title": "Broad-Spectrum Sunscreen",
+            "description": (
+                "Use sunscreen as the final daytime skincare step."
+            ),
         },
     ]
-
-    # --------------------------------------------------------
-    # EVENING ROUTINE
-    # --------------------------------------------------------
 
     evening = [
-
         {
+            "id": "evening-cleanse",
             "step": 1,
             "category": "Cleansing",
-            "product_type": "Gentle Cleanser",
-            "reason": "Remove sunscreen, oil and impurities.",
+            "title": "Gentle Evening Cleanse",
+            "description": (
+                "Remove sunscreen, makeup and daily buildup gently."
+            ),
         },
-
         {
+            "id": "evening-treatment",
             "step": 2,
             "category": "Treatment",
-            "product_type": "Targeted Treatment Serum",
-            "reason": "Address the user's primary skin concerns.",
+            "title": "Targeted Treatment",
+            "description": (
+                "Use a suitable treatment according to your concerns."
+            ),
         },
-
         {
+            "id": "evening-moisturize",
             "step": 3,
-            "category": "Moisturizing",
-            "product_type": "Barrier Moisturizer",
-            "reason": "Support overnight skin-barrier care.",
+            "category": "Night Care",
+            "title": "Night Moisturizer",
+            "description": (
+                "Support the skin barrier with an appropriate moisturizer."
+            ),
         },
     ]
 
-    # --------------------------------------------------------
-    # CONCERN-SPECIFIC ADVICE
-    # --------------------------------------------------------
+    weekly = [
+        {
+            "day": "Monday",
+            "focus": "Barrier Support",
+        },
+        {
+            "day": "Wednesday",
+            "focus": "Targeted Treatment",
+        },
+        {
+            "day": "Friday",
+            "focus": "Gentle Skin Care",
+        },
+        {
+            "day": "Sunday",
+            "focus": "Skin Recovery",
+        },
+    ]
 
-    concern_recommendations = []
+    recommendations = []
 
-    for concern in concerns:
+    # Oily skin
+    if (
+        "oily" in skin_type.lower()
+        or "Oily Skin" in concerns
+    ):
+        recommendations.append(
+            "Prefer lightweight, non-greasy skincare products."
+        )
 
-        if concern == "Acne":
+    # Dry skin
+    if (
+        "dry" in skin_type.lower()
+        or "Dry Skin" in concerns
+    ):
+        recommendations.append(
+            "Prioritize gentle cleansing and barrier-supporting moisturization."
+        )
 
-            concern_recommendations.append({
-                "concern": concern,
-                "recommendation": (
-                    "Consider gentle, non-comedogenic products "
-                    "and avoid over-exfoliation."
-                ),
-            })
+    # Sensitive skin
+    if "Sensitive Skin" in concerns:
+        recommendations.append(
+            "Introduce new products gradually and consider fragrance-free options."
+        )
 
-        elif concern == "Hyperpigmentation":
+    # Acne
+    if "Acne" in concerns:
+        recommendations.append(
+            "Consider an acne-focused routine with gentle cleansing and suitable active ingredients."
+        )
 
-            concern_recommendations.append({
-                "concern": concern,
-                "recommendation": (
-                    "Prioritize daily sunscreen and "
-                    "consistent brightening care."
-                ),
-            })
+    # Dark spots
+    if "Dark Spots" in concerns:
+        recommendations.append(
+            "Daily sun protection is especially important in a pigmentation-focused routine."
+        )
 
-        elif concern == "Dry Skin":
+    # Hyperpigmentation
+    if "Hyperpigmentation" in concerns:
+        recommendations.append(
+            "Consider brightening ingredients such as vitamin C or niacinamide."
+        )
 
-            concern_recommendations.append({
-                "concern": concern,
-                "recommendation": (
-                    "Prefer gentle cleansing and "
-                    "barrier-supporting moisturizers."
-                ),
-            })
+    # Wrinkles
+    if "Wrinkles" in concerns or "Fine Lines" in concerns:
+        recommendations.append(
+            "Prioritize sunscreen and a consistent night-care routine."
+        )
 
-        elif concern == "Sensitive Skin":
+    # Hydration
+    water = safe_number(
+        getattr(
+            profile,
+            "water_intake",
+            None
+        ),
+        0
+    )
 
-            concern_recommendations.append({
-                "concern": concern,
-                "recommendation": (
-                    "Prefer fragrance-free products and "
-                    "introduce new products gradually."
-                ),
-            })
+    if water > 0 and water < 1.5:
+        recommendations.append(
+            "Your recorded water intake is relatively low; maintain regular hydration."
+        )
 
-        elif concern == "Wrinkles":
-
-            concern_recommendations.append({
-                "concern": concern,
-                "recommendation": (
-                    "Prioritize sun protection and "
-                    "consistent skin-barrier care."
-                ),
-            })
-
-        elif concern == "Redness":
-
-            concern_recommendations.append({
-                "concern": concern,
-                "recommendation": (
-                    "Use gentle products and avoid "
-                    "known irritants."
-                ),
-            })
-
-        elif concern == "Dark Circles":
-
-            concern_recommendations.append({
-                "concern": concern,
-                "recommendation": (
-                    "Maintain adequate sleep and use "
-                    "gentle eye-area skincare."
-                ),
-            })
+    if not recommendations:
+        recommendations.append(
+            "Maintain a simple, consistent routine and introduce new products gradually."
+        )
 
     return {
-
         "status": "success",
 
         "user_id": current_user.id,
@@ -657,52 +1019,13 @@ def get_personalized_routine(
 
         "evening_routine": evening,
 
-        "weekly_plan": [
+        "weekly_plan": weekly,
 
-            {
-                "day": "Monday",
-                "focus": "Basic skincare and hydration",
-            },
-
-            {
-                "day": "Tuesday",
-                "focus": "Basic skincare",
-            },
-
-            {
-                "day": "Wednesday",
-                "focus": "Gentle treatment",
-            },
-
-            {
-                "day": "Thursday",
-                "focus": "Basic skincare and hydration",
-            },
-
-            {
-                "day": "Friday",
-                "focus": "Basic skincare",
-            },
-
-            {
-                "day": "Saturday",
-                "focus": "Gentle treatment",
-            },
-
-            {
-                "day": "Sunday",
-                "focus": "Recovery and barrier care",
-            },
-        ],
-
-        "personalized_recommendations": (
-            concern_recommendations
-        ),
+        "personalized_recommendations": recommendations,
 
         "note": (
             "Routine suggestions are informational "
-            "and should not replace professional "
-            "medical advice."
+            "and should not replace professional medical advice."
         ),
     }
 
@@ -714,14 +1037,12 @@ def get_personalized_routine(
 INGREDIENT_DATABASE = {
 
     "niacinamide": {
-
         "name": "Niacinamide",
-
         "category": "Vitamin B3",
 
         "benefits": [
             "Supports skin barrier",
-            "Helps improve uneven appearance",
+            "Helps improve uneven-looking skin",
             "Can support oil-control routines",
         ],
 
@@ -738,9 +1059,7 @@ INGREDIENT_DATABASE = {
     },
 
     "vitamin c": {
-
         "name": "Vitamin C",
-
         "category": "Antioxidant",
 
         "benefits": [
@@ -756,15 +1075,12 @@ INGREDIENT_DATABASE = {
         ],
 
         "caution": (
-            "Patch testing is recommended when introducing "
-            "a new active ingredient."
+            "Patch testing is recommended when introducing a new active ingredient."
         ),
     },
 
     "hyaluronic acid": {
-
         "name": "Hyaluronic Acid",
-
         "category": "Humectant",
 
         "benefits": [
@@ -775,19 +1091,15 @@ INGREDIENT_DATABASE = {
         "suitable_for": [
             "Dry Skin",
             "Sensitive Skin",
-            "Dehydrated Skin",
         ],
 
         "caution": (
-            "Use with a suitable moisturizer to help "
-            "support the skin barrier."
+            "Use with a suitable moisturizer to support the skin barrier."
         ),
     },
 
     "salicylic acid": {
-
         "name": "Salicylic Acid",
-
         "category": "BHA",
 
         "benefits": [
@@ -806,9 +1118,7 @@ INGREDIENT_DATABASE = {
     },
 
     "ceramides": {
-
         "name": "Ceramides",
-
         "category": "Skin Barrier",
 
         "benefits": [
@@ -827,9 +1137,7 @@ INGREDIENT_DATABASE = {
     },
 
     "peptides": {
-
         "name": "Peptides",
-
         "category": "Skin Conditioning",
 
         "benefits": [
@@ -848,9 +1156,7 @@ INGREDIENT_DATABASE = {
     },
 
     "retinoids": {
-
         "name": "Retinoids",
-
         "category": "Vitamin A Derivatives",
 
         "benefits": [
@@ -865,16 +1171,12 @@ INGREDIENT_DATABASE = {
         ],
 
         "caution": (
-            "Retinoids can cause irritation and require "
-            "careful introduction. Professional guidance "
-            "may be appropriate."
+            "Retinoids can cause irritation and require careful introduction."
         ),
     },
 
     "aha": {
-
         "name": "AHAs",
-
         "category": "Chemical Exfoliant",
 
         "benefits": [
@@ -889,15 +1191,12 @@ INGREDIENT_DATABASE = {
         ],
 
         "caution": (
-            "Avoid excessive exfoliation, especially "
-            "with sensitive skin."
+            "Avoid excessive exfoliation, especially with sensitive skin."
         ),
     },
 
     "bha": {
-
         "name": "BHAs",
-
         "category": "Chemical Exfoliant",
 
         "benefits": [
@@ -920,20 +1219,19 @@ INGREDIENT_DATABASE = {
 @router.post("/ingredients/analyze")
 def analyze_ingredient(
     request: IngredientAnalysisRequest,
+
     current_user: User = Depends(
         get_current_user
     ),
+
     db: Session = Depends(get_db),
 ):
 
-    ingredient = (
+    ingredient = clean_text(
         request.ingredient
-        .lower()
-        .strip()
-    )
+    ).lower()
 
     if not ingredient:
-
         raise HTTPException(
             status_code=400,
             detail="Ingredient name is required.",
@@ -946,11 +1244,8 @@ def analyze_ingredient(
     if result is None:
 
         return {
-
             "status": "success",
-
             "found": False,
-
             "ingredient": request.ingredient,
 
             "message": (
@@ -959,9 +1254,9 @@ def analyze_ingredient(
             ),
 
             "recommendation": (
-                "Check the complete product ingredient "
-                "list and consult a qualified professional "
-                "if you have allergies or sensitivities."
+                "Check the complete product ingredient list "
+                "and consult a qualified professional if you "
+                "have allergies or sensitivities."
             ),
         }
 
@@ -974,13 +1269,36 @@ def analyze_ingredient(
         profile
     )
 
+    allergies = clean_text(
+        getattr(
+            profile,
+            "allergies",
+            ""
+        )
+    ).lower() if profile else ""
+
+    sensitivities = clean_text(
+        getattr(
+            profile,
+            "sensitivities",
+            ""
+        ).lower()
+    ) if profile else ""
+
     suitable = any(
         item in concerns
         for item in result["suitable_for"]
     )
 
-    return {
+    allergy_warning = False
 
+    if allergies and ingredient in allergies:
+        allergy_warning = True
+
+    if sensitivities and ingredient in sensitivities:
+        allergy_warning = True
+
+    return {
         "status": "success",
 
         "found": True,
@@ -994,6 +1312,8 @@ def analyze_ingredient(
         "suitable_for": result["suitable_for"],
 
         "personalized_match": suitable,
+
+        "allergy_or_sensitivity_warning": allergy_warning,
 
         "caution": result["caution"],
 
@@ -1014,7 +1334,6 @@ def get_ingredients(
 ):
 
     return {
-
         "status": "success",
 
         "count": len(
@@ -1036,15 +1355,18 @@ PRODUCT_DATABASE = [
     {
         "name": "Gentle Hydrating Cleanser",
         "category": "Face Wash",
+
         "skin_types": [
             "Dry",
             "Sensitive",
             "Normal",
         ],
+
         "ingredients": [
             "Ceramides",
             "Hyaluronic Acid",
         ],
+
         "budget": "Budget",
         "score": 88,
     },
@@ -1052,14 +1374,17 @@ PRODUCT_DATABASE = [
     {
         "name": "Oil Control Cleanser",
         "category": "Face Wash",
+
         "skin_types": [
             "Oily",
             "Combination",
         ],
+
         "ingredients": [
             "Salicylic Acid",
             "Niacinamide",
         ],
+
         "budget": "Budget",
         "score": 90,
     },
@@ -1067,15 +1392,18 @@ PRODUCT_DATABASE = [
     {
         "name": "Barrier Support Moisturizer",
         "category": "Moisturizer",
+
         "skin_types": [
             "Dry",
             "Sensitive",
             "Normal",
         ],
+
         "ingredients": [
             "Ceramides",
             "Hyaluronic Acid",
         ],
+
         "budget": "Mid-range",
         "score": 92,
     },
@@ -1083,13 +1411,16 @@ PRODUCT_DATABASE = [
     {
         "name": "Lightweight Oil Control Moisturizer",
         "category": "Moisturizer",
+
         "skin_types": [
             "Oily",
             "Combination",
         ],
+
         "ingredients": [
             "Niacinamide",
         ],
+
         "budget": "Budget",
         "score": 89,
     },
@@ -1097,12 +1428,15 @@ PRODUCT_DATABASE = [
     {
         "name": "Broad Spectrum Sunscreen SPF 50",
         "category": "Sunscreen",
+
         "skin_types": [
             "All",
         ],
+
         "ingredients": [
             "UV Filters",
         ],
+
         "budget": "Mid-range",
         "score": 95,
     },
@@ -1110,15 +1444,18 @@ PRODUCT_DATABASE = [
     {
         "name": "Brightening Antioxidant Serum",
         "category": "Serum",
+
         "skin_types": [
             "Normal",
             "Combination",
             "Oily",
         ],
+
         "ingredients": [
             "Vitamin C",
             "Niacinamide",
         ],
+
         "budget": "Mid-range",
         "score": 91,
     },
@@ -1126,14 +1463,17 @@ PRODUCT_DATABASE = [
     {
         "name": "Hydration Serum",
         "category": "Serum",
+
         "skin_types": [
             "Dry",
             "Sensitive",
             "Normal",
         ],
+
         "ingredients": [
             "Hyaluronic Acid",
         ],
+
         "budget": "Budget",
         "score": 90,
     },
@@ -1143,7 +1483,6 @@ PRODUCT_DATABASE = [
 @router.get("/products/recommend")
 def recommend_products(
     category: Optional[str] = None,
-
     budget: Optional[str] = None,
 
     current_user: User = Depends(
@@ -1166,33 +1505,27 @@ def recommend_products(
         profile
     )
 
-    normalized_skin_type = skin_type.lower()
+    normalized_skin_type = (
+        skin_type.lower()
+    )
 
     recommendations = []
 
     for product in PRODUCT_DATABASE:
 
-        # ----------------------------------------------------
-        # Category filter
-        # ----------------------------------------------------
-
         if category:
-
-            if product["category"].lower() != category.lower():
+            if (
+                product["category"].lower()
+                != category.lower()
+            ):
                 continue
-
-        # ----------------------------------------------------
-        # Budget filter
-        # ----------------------------------------------------
 
         if budget:
-
-            if product["budget"].lower() != budget.lower():
+            if (
+                product["budget"].lower()
+                != budget.lower()
+            ):
                 continue
-
-        # ----------------------------------------------------
-        # Calculate personalized score
-        # ----------------------------------------------------
 
         score = product["score"]
 
@@ -1203,69 +1536,79 @@ def recommend_products(
 
         if (
             "all" in product_skin_types
-            or normalized_skin_type in product_skin_types
+            or normalized_skin_type
+            in product_skin_types
         ):
             score += 5
-
-        # ----------------------------------------------------
-        # Ingredient match
-        # ----------------------------------------------------
 
         ingredient_text = " ".join(
             product["ingredients"]
         ).lower()
 
+        concern_text = " ".join(
+            concerns
+        ).lower()
+
         if (
-            "acne" in concerns
+            "acne" in concern_text
             and "salicylic" in ingredient_text
         ):
             score += 5
 
         if (
-            "hyperpigmentation" in concerns
-            and "vitamin c" in ingredient_text
+            (
+                "hyperpigmentation"
+                in concern_text
+                or "dark spots"
+                in concern_text
+            )
+            and "vitamin c"
+            in ingredient_text
         ):
             score += 5
 
         if (
-            "dry skin" in concerns
+            "dry skin" in concern_text
             and (
-                "hyaluronic" in ingredient_text
-                or "ceramides" in ingredient_text
+                "hyaluronic"
+                in ingredient_text
+                or "ceramides"
+                in ingredient_text
             )
         ):
             score += 5
 
         if (
-            "sensitive skin" in concerns
-            and "ceramides" in ingredient_text
+            "sensitive skin"
+            in concern_text
+            and "ceramides"
+            in ingredient_text
         ):
             score += 5
 
-        recommendations.append({
+        recommendations.append(
+            {
+                **product,
 
-            **product,
+                "personalized_score": min(
+                    score,
+                    100
+                ),
 
-            "personalized_score": min(
-                score,
-                100
-            ),
-
-            "match_reason": (
-                "Recommended based on your "
-                "skin profile and identified concerns."
-            ),
-        })
+                "match_reason": (
+                    "Recommended based on your "
+                    "skin profile and identified concerns."
+                ),
+            }
+        )
 
     recommendations.sort(
-        key=lambda item: item[
-            "personalized_score"
-        ],
-        reverse=True
+        key=lambda item:
+        item["personalized_score"],
+        reverse=True,
     )
 
     return {
-
         "status": "success",
 
         "user_id": current_user.id,
@@ -1274,7 +1617,8 @@ def recommend_products(
 
         "concerns": concerns,
 
-        "recommendations": recommendations[:10],
+        "recommendations":
+            recommendations[:10],
 
         "note": (
             "These are informational product suggestions. "
@@ -1292,6 +1636,7 @@ def get_progress(
     current_user: User = Depends(
         get_current_user
     ),
+
     db: Session = Depends(get_db),
 ):
 
@@ -1314,83 +1659,153 @@ def get_progress(
         confidence = safe_number(
             getattr(
                 analysis,
-                "confidence",
+                "primary_confidence",
                 None
             ),
-            0
+            0.0,
         )
 
-        history.append({
+        if confidence <= 1:
+            confidence *= 100
 
-            "analysis_id": analysis.id,
-
-            "confidence": round(
-                confidence * 100,
-                2
-            )
-            if confidence <= 1
-            else round(
-                confidence,
-                2
-            ),
-
-            "image_path": getattr(
+        health_score = safe_number(
+            getattr(
                 analysis,
-                "image_path",
+                "skin_health_score",
                 None
             ),
-        })
+            None,
+        )
 
-    latest_score = None
+        history.append(
+            {
+                "analysis_id":
+                    analysis.id,
 
-    if history:
+                "date":
+                    (
+                        analysis.created_at.isoformat()
+                        if getattr(
+                            analysis,
+                            "created_at",
+                            None
+                        )
+                        else None
+                    ),
 
-        latest_score = history[-1][
-            "confidence"
-        ]
+                "score":
+                    (
+                        round(
+                            health_score,
+                            2
+                        )
+                        if health_score is not None
+                        else round(
+                            confidence,
+                            2
+                        )
+                    ),
+
+                "health_score":
+                    (
+                        round(
+                            health_score,
+                            2
+                        )
+                        if health_score is not None
+                        else round(
+                            confidence,
+                            2
+                        )
+                    ),
+
+                "confidence":
+                    round(
+                        confidence,
+                        2
+                    ),
+
+                "image_path":
+                    getattr(
+                        analysis,
+                        "image_path",
+                        None
+                    ),
+            }
+        )
+
+    current_score = (
+        history[-1]["score"]
+        if history
+        else None
+    )
+
+    previous_score = (
+        history[-2]["score"]
+        if len(history) >= 2
+        else None
+    )
+
+    improvement = None
+
+    if (
+        current_score is not None
+        and previous_score is not None
+    ):
+        improvement = round(
+            current_score
+            - previous_score,
+            2,
+        )
 
     return {
-
         "status": "success",
 
-        "user_id": current_user.id,
+        "user_id":
+            current_user.id,
 
-        "total_assessments": len(
-            history
-        ),
+        "total_assessments":
+            len(history),
 
-        "latest_assessment_score": latest_score,
+        "current_score":
+            current_score,
 
-        "history": history,
+        "improvement":
+            improvement,
+
+        "latest_assessment_score":
+            current_score,
+
+        "history":
+            history,
 
         "tracking_features": {
+            "skin_progress_monitoring":
+                True,
 
-            "skin_progress_monitoring": True,
+            "assessment_history":
+                True,
 
-            "assessment_history": True,
+            "trend_analysis":
+                len(history) >= 2,
 
-            "trend_analysis": (
-                len(history) >= 2
-            ),
+            "before_after_comparison":
+                len(history) >= 2,
 
-            "before_after_comparison": (
-                len(history) >= 2
-            ),
-
-            "routine_adherence_tracking": False,
+            "routine_adherence_tracking":
+                False,
         },
 
         "message": (
             "Assessment history is available. "
-            "Routine adherence tracking will be "
-            "connected when the routine checklist "
-            "storage is added."
+            "Routine adherence will be connected "
+            "to persistent checklist storage in a later step."
         ),
     }
 
 
 # ============================================================
-# 6. DASHBOARD SUMMARY
+# 6. DASHBOARD
 # ============================================================
 
 @router.get("/dashboard")
@@ -1398,6 +1813,7 @@ def get_intelligence_dashboard(
     current_user: User = Depends(
         get_current_user
     ),
+
     db: Session = Depends(get_db),
 ):
 
@@ -1411,26 +1827,16 @@ def get_intelligence_dashboard(
         db
     )
 
-    condition_score = calculate_condition_score(
+    scores = calculate_health_score(
         profile,
-        analysis
+        analysis,
     )
 
     concerns = get_skin_concerns(
         profile
     )
 
-    # Same weighted baseline used by health-score endpoint.
-    overall_score = round(
-        (
-            condition_score * 0.35
-            + 70 * 0.20
-            + 70 * 0.15
-            + 50 * 0.20
-            + 70 * 0.10
-        ),
-        2
-    )
+    overall_score = scores["overall"]
 
     assessment_count = (
         db.query(SkinAnalysis)
@@ -1442,71 +1848,69 @@ def get_intelligence_dashboard(
     )
 
     return {
-
         "status": "success",
 
         "user": {
+            "id":
+                current_user.id,
 
-            "id": current_user.id,
+            "name":
+                getattr(
+                    current_user,
+                    "name",
+                    "User"
+                ),
 
-            "name": getattr(
-                current_user,
-                "name",
-                "User"
-            ),
-
-            "email": getattr(
-                current_user,
-                "email",
-                None
-            ),
+            "email":
+                getattr(
+                    current_user,
+                    "email",
+                    None
+                ),
         },
 
         "skin": {
+            "skin_type":
+                get_primary_skin_type(
+                    profile
+                ),
 
-            "skin_type": get_primary_skin_type(
-                profile
-            ),
+            "concerns":
+                concerns,
 
-            "concerns": concerns,
+            "health_score":
+                overall_score,
 
-            "health_score": overall_score,
-
-            "health_label": get_score_label(
-                overall_score
-            ),
+            "health_label":
+                get_score_label(
+                    overall_score
+                ),
         },
 
         "modules": {
-
             "skin_assessment": True,
-
             "health_scoring": True,
-
             "personalized_routine": True,
-
             "ingredient_intelligence": True,
-
             "product_recommendations": True,
-
             "progress_tracking": True,
-
             "notifications": False,
-
             "reports": False,
         },
 
-        "assessment_count": assessment_count,
+        "assessment_count":
+            assessment_count,
 
-        "latest_analysis_id": (
-            analysis.id
-            if analysis
-            else None
-        ),
+        "latest_analysis_id":
+            (
+                analysis.id
+                if analysis
+                else None
+            ),
 
         "message": (
-            "Skin Intelligence dashboard data "
-            "generated successfully."
+            "Personalized Skin Intelligence dashboard "
+            "data generated successfully."
         ),
     }
 
@@ -1520,6 +1924,7 @@ def get_general_recommendations(
     current_user: User = Depends(
         get_current_user
     ),
+
     db: Session = Depends(get_db),
 ):
 
@@ -1533,98 +1938,139 @@ def get_general_recommendations(
     )
 
     recommendations = [
-
         {
-            "title": "Daily Sun Protection",
-            "priority": "High",
-            "description": (
-                "Use broad-spectrum sunscreen "
-                "during daytime."
-            ),
+            "title":
+                "Daily Sun Protection",
+
+            "priority":
+                "High",
+
+            "description":
+                "Use broad-spectrum sunscreen during daytime.",
         },
 
         {
-            "title": "Gentle Cleansing",
-            "priority": "High",
-            "description": (
-                "Avoid unnecessarily harsh cleansing "
-                "that can disturb the skin barrier."
-            ),
+            "title":
+                "Gentle Cleansing",
+
+            "priority":
+                "High",
+
+            "description":
+                "Avoid unnecessarily harsh cleansing that can disturb the skin barrier.",
         },
 
         {
-            "title": "Stay Hydrated",
-            "priority": "Medium",
-            "description": (
-                "Maintain regular water intake as "
-                "part of a healthy lifestyle."
-            ),
+            "title":
+                "Stay Hydrated",
+
+            "priority":
+                "Medium",
+
+            "description":
+                "Maintain regular water intake as part of a healthy lifestyle.",
         },
 
         {
-            "title": "Introduce Products Gradually",
-            "priority": "Medium",
-            "description": (
-                "Add new active ingredients one at "
-                "a time and monitor skin response."
-            ),
+            "title":
+                "Introduce Products Gradually",
+
+            "priority":
+                "Medium",
+
+            "description":
+                "Add new active ingredients one at a time and monitor skin response.",
         },
     ]
 
     if "Acne" in concerns:
 
-        recommendations.append({
+        recommendations.append(
+            {
+                "title":
+                    "Acne-Focused Care",
 
-            "title": "Acne-Focused Care",
+                "priority":
+                    "High",
 
-            "priority": "High",
-
-            "description": (
-                "Consider non-comedogenic products "
-                "and avoid excessive product layering."
-            ),
-        })
+                "description":
+                    "Consider gentle, non-comedogenic skincare and avoid excessive product layering.",
+            }
+        )
 
     if "Dry Skin" in concerns:
 
-        recommendations.append({
+        recommendations.append(
+            {
+                "title":
+                    "Barrier Support",
 
-            "title": "Barrier Support",
+                "priority":
+                    "High",
 
-            "priority": "High",
-
-            "description": (
-                "Prefer moisturizers containing "
-                "barrier-supporting ingredients."
-            ),
-        })
+                "description":
+                    "Prefer moisturizers containing barrier-supporting ingredients.",
+            }
+        )
 
     if "Sensitive Skin" in concerns:
 
-        recommendations.append({
+        recommendations.append(
+            {
+                "title":
+                    "Sensitivity Protection",
 
-            "title": "Sensitivity Protection",
+                "priority":
+                    "High",
 
-            "priority": "High",
+                "description":
+                    "Prefer gentle and fragrance-free products when appropriate.",
+            }
+        )
 
-            "description": (
-                "Prefer gentle and fragrance-free "
-                "products when appropriate."
-            ),
-        })
+    if "Dark Spots" in concerns:
+
+        recommendations.append(
+            {
+                "title":
+                    "Dark Spot Support",
+
+                "priority":
+                    "Medium",
+
+                "description":
+                    "Prioritize consistent sun protection and suitable brightening ingredients.",
+            }
+        )
+
+    if "Hyperpigmentation" in concerns:
+
+        recommendations.append(
+            {
+                "title":
+                    "Even Skin Tone Support",
+
+                "priority":
+                    "Medium",
+
+                "description":
+                    "Consider suitable brightening ingredients such as vitamin C or niacinamide.",
+            }
+        )
 
     return {
+        "status":
+            "success",
 
-        "status": "success",
+        "user_id":
+            current_user.id,
 
-        "user_id": current_user.id,
+        "identified_concerns":
+            concerns,
 
-        "identified_concerns": concerns,
+        "recommendations":
+            recommendations,
 
-        "recommendations": recommendations,
-
-        "note": (
-            "Recommendations are educational and "
-            "not a medical diagnosis."
-        ),
+        "note":
+            "Recommendations are educational and not a medical diagnosis.",
     }

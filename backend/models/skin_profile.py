@@ -1,44 +1,144 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime
-from sqlalchemy.sql import func
+# ============================================================
+# SKIN INTELLIGENCE
+# SKIN PROFILE DATABASE MODEL
+# ============================================================
+
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    Float,
+    ForeignKey,
+)
 
 from database import Base
 
 
 class SkinProfile(Base):
+    """
+    Stores the personalized skin and lifestyle information
+    associated with a user.
+    """
+
     __tablename__ = "skin_profiles"
 
-    id = Column(Integer, primary_key=True, index=True)
+    # --------------------------------------------------------
+    # Primary Key
+    # --------------------------------------------------------
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    # --------------------------------------------------------
+    # User Relationship
+    # --------------------------------------------------------
 
     user_id = Column(
         Integer,
         ForeignKey("users.id"),
         unique=True,
-        nullable=False
+        nullable=False,
+        index=True
     )
 
-    skin_type = Column(String(50), nullable=True)
+    # --------------------------------------------------------
+    # Basic Skin Information
+    # --------------------------------------------------------
 
-    acne = Column(Boolean, default=False)
-
-    pigmentation = Column(Boolean, default=False)
-
-    dryness = Column(Boolean, default=False)
-
-    sensitivity = Column(Boolean, default=False)
-
-    dark_circles = Column(Boolean, default=False)
-
-    wrinkles = Column(Boolean, default=False)
-
-    redness = Column(Boolean, default=False)
-
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now()
+    skin_type = Column(
+        String(50),
+        nullable=True
     )
 
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now()
+    age_group = Column(
+        String(50),
+        nullable=True
     )
+
+    # --------------------------------------------------------
+    # Skin Concerns
+    #
+    # Example:
+    # acne, dark spots, dryness
+    # --------------------------------------------------------
+
+    skin_concerns = Column(
+        Text,
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # Allergies & Sensitivities
+    # --------------------------------------------------------
+
+    allergies = Column(
+        Text,
+        nullable=True
+    )
+
+    sensitivities = Column(
+        Text,
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # Lifestyle
+    # --------------------------------------------------------
+
+    lifestyle_habits = Column(
+        Text,
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # Sleep
+    # --------------------------------------------------------
+
+    sleep_quality = Column(
+        String(50),
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # Hydration
+    # --------------------------------------------------------
+
+    water_intake = Column(
+        Float,
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # Environmental Exposure
+    # --------------------------------------------------------
+
+    environmental_exposure = Column(
+        Text,
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # Additional Information
+    # --------------------------------------------------------
+
+    additional_notes = Column(
+        Text,
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # Representation
+    # --------------------------------------------------------
+
+    def __repr__(self):
+        return (
+            f"<SkinProfile("
+            f"id={self.id}, "
+            f"user_id={self.user_id}, "
+            f"skin_type='{self.skin_type}'"
+            f")>"
+        )
